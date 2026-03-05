@@ -1,0 +1,10 @@
+node_modules
+.claude/
+.env.local
+.env.*
+KMS/logs
+
+# compiled output
+*.js
+*.d.ts
+*.d.ts.map

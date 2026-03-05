@@ -1,0 +1,24 @@
+{
+  "name": "turtle-talk-livekit-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx main.ts dev",
+    "start": "node --no-deprecation main.js start"
+  },
+  "dependencies": {
+    "@livekit/agents": "^1.0.0",
+    "@livekit/agents-plugin-openai": "^1.x",
+    "@livekit/noise-cancellation-node": "^0.x",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
