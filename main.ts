@@ -9,20 +9,12 @@ import { BackgroundVoiceCancellation } from '@livekit/noise-cancellation-node';
 import { RoomEvent } from '@livekit/rtc-node';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { appendFileSync } from 'node:fs';
 import dotenv from 'dotenv';
 import { ShellyAgent } from './agent.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: join(__dirname, '.env.local') });
 dotenv.config({ path: join(__dirname, '..', '.env.local') });
-
-// #region agent log
-const DEBUG_LOG_PATH = join(__dirname, '..', 'debug-6febbf.log');
-function debugLog(location: string, message: string, data: Record<string, unknown>, hypothesisId?: string, runId?: string): void {
-  try { appendFileSync(DEBUG_LOG_PATH, JSON.stringify({ sessionId: '6febbf', location, message, data, timestamp: Date.now(), hypothesisId, runId }) + '\n'); } catch {}
-}
-// #endregion
 
 // Workaround for a race condition in @livekit/agents-plugin-openai@1.0.48:
 // When a participant disconnects while OpenAI is still streaming a response,
@@ -32,9 +24,6 @@ function debugLog(location: string, message: string, data: Record<string, unknow
 // worker's proc pool (all subsequent jobs get ERR_IPC_CHANNEL_CLOSED).
 const KNOWN_RACE_ERRORS = ['currentGeneration is not set', 'item.type is not set'];
 process.on('uncaughtException', (err) => {
-  // #region agent log
-  debugLog('main.ts:uncaughtException', 'uncaught exception intercepted', { message: err.message, stack: err.stack }, 'FIX', 'post-fix');
-  // #endregion
   if (KNOWN_RACE_ERRORS.some((msg) => err.message === msg)) {
     console.warn('[shelly] suppressed known OpenAI Realtime race condition:', err.message);
     return;
