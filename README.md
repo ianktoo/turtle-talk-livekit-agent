@@ -27,6 +27,33 @@ Uses **OpenAI Realtime API** for full-duplex voice: speech-in and speech-out are
    pnpm dev              # connect to LiveKit Cloud
    ```
 
+### Systemd service (persistent, auto-restart)
+
+The agent runs as a **systemd user service** on the server. It starts automatically on boot, restarts on crashes, and defers (stops retrying) after 5 failures in 2 minutes.
+
+**Service file:** `~/.config/systemd/user/turtle-talk-agent.service`
+
+| Command | Description |
+|---------|-------------|
+| `systemctl --user start turtle-talk-agent` | Start the agent |
+| `systemctl --user stop turtle-talk-agent` | Stop the agent |
+| `systemctl --user restart turtle-talk-agent` | Restart the agent |
+| `systemctl --user status turtle-talk-agent` | Show running status |
+| `journalctl -t turtle-talk-agent -f` | Follow live logs |
+| `journalctl -t turtle-talk-agent -n 100` | Last 100 log lines |
+
+**Restart behaviour:**
+- Any non-zero exit → restarts after 5 s, backing off up to 30 s between attempts
+- After **5 failures within 2 minutes** (fatal / repeated crash) → systemd stops retrying, service enters `failed` state, all output is in the journal
+- To recover from failed state: `systemctl --user reset-failed turtle-talk-agent && systemctl --user start turtle-talk-agent`
+
+**Monitoring hooks added to the agent (`main.ts`):**
+- `prewarm` — logs when each worker process warms up before accepting jobs
+- `monitorRoom` — logs participant connect/disconnect and room connection state changes
+- `monitorSession` — logs agent/user state transitions, LLM metrics, errors, and session close events
+
+All events are written to `debug-6febbf.log` (next to the project) and critical events also print to `stderr` (visible in the journal).
+
 ### Make commands (optional)
 
 From this directory you can use `make` for common tasks (handy on Linux/macOS or WSL; on Windows you can override `STOP_CMD` or use npm scripts directly):
