@@ -65,6 +65,9 @@ From this directory you can use `make` for common tasks (handy on Linux/macOS or
 | `make debug`   | Run in dev mode (foreground) — for local debugging |
 | `make start`   | Build and run in production (foreground) |
 | `make stop`    | Stop the agent (default: `pkill` on Unix; override for systemd/pm2) |
+| `make status`  | Show systemd service status (`systemctl --user status turtle-talk-agent`) |
+| `make logs`    | Tail live service logs via journald (`journalctl --user -u turtle-talk-agent -f`) |
+| `make monitor` | Tail the debug log file in real time (`../debug-6febbf.log`; override with `LOG_FILE=`) |
 
 On a deployed server, stop via your process manager, e.g.:
 
