@@ -3,26 +3,18 @@
  * Uses OpenAI Realtime API for speech-in and speech-out.
  * Run: pnpm dev (connects to LiveKit Cloud), or deploy with lk agent create.
  */
-import { type JobContext, type JobProcess, ServerOptions, cli, defineAgent, voice } from '@livekit/agents';
+import { type JobContext, type JobProcess, ServerOptions, cli, defineAgent, llm, voice } from '@livekit/agents';
 import * as openai from '@livekit/agents-plugin-openai';
 import { BackgroundVoiceCancellation } from '@livekit/noise-cancellation-node';
 import { RoomEvent } from '@livekit/rtc-node';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { appendFileSync } from 'node:fs';
 import dotenv from 'dotenv';
 import { ShellyAgent } from './agent.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: join(__dirname, '.env.local') });
 dotenv.config({ path: join(__dirname, '..', '.env.local') });
-
-// #region agent log
-const DEBUG_LOG_PATH = join(__dirname, '..', 'debug-6febbf.log');
-function debugLog(location: string, message: string, data: Record<string, unknown>, hypothesisId?: string, runId?: string): void {
-  try { appendFileSync(DEBUG_LOG_PATH, JSON.stringify({ sessionId: '6febbf', location, message, data, timestamp: Date.now(), hypothesisId, runId }) + '\n'); } catch {}
-}
-// #endregion
 
 // Workaround for a race condition in @livekit/agents-plugin-openai@1.0.48:
 // When a participant disconnects while OpenAI is still streaming a response,
@@ -32,9 +24,6 @@ function debugLog(location: string, message: string, data: Record<string, unknow
 // worker's proc pool (all subsequent jobs get ERR_IPC_CHANNEL_CLOSED).
 const KNOWN_RACE_ERRORS = ['currentGeneration is not set', 'item.type is not set'];
 process.on('uncaughtException', (err) => {
-  // #region agent log
-  debugLog('main.ts:uncaughtException', 'uncaught exception intercepted', { message: err.message, stack: err.stack }, 'FIX', 'post-fix');
-  // #endregion
   if (KNOWN_RACE_ERRORS.some((msg) => err.message === msg)) {
     console.warn('[shelly] suppressed known OpenAI Realtime race condition:', err.message);
     return;
@@ -46,6 +35,11 @@ process.on('uncaughtException', (err) => {
 function sendTranscript(room: { localParticipant?: { publishData(data: Uint8Array, opts: { reliable?: boolean }): Promise<void> } }, role: 'user' | 'assistant', text: string): void {
   const payload = new TextEncoder().encode(JSON.stringify({ type: 'transcript', role, text }));
   room.localParticipant?.publishData(payload, { reliable: true }).catch(() => {});
+}
+
+function sendData(room: { localParticipant?: { publishData(data: Uint8Array, opts: { reliable?: boolean }): Promise<void> } }, payload: unknown): void {
+  const data = new TextEncoder().encode(JSON.stringify(payload));
+  room.localParticipant?.publishData(data, { reliable: true }).catch(() => {});
 }
 
 /** Parse dispatch metadata from the job (childName, topics). Works on LiveKit Cloud; may be empty on self-hosted. */
@@ -75,29 +69,23 @@ function monitorRoom(ctx: JobContext): void {
   const room = ctx.room;
 
   room.on(RoomEvent.ParticipantConnected, (participant) => {
-    debugLog('monitor:room', 'participant connected', { identity: participant.identity, sid: participant.sid });
   });
 
   room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-    debugLog('monitor:room', 'participant disconnected', { identity: participant.identity, sid: participant.sid });
   });
 
   room.on(RoomEvent.ConnectionStateChanged, (state) => {
-    debugLog('monitor:room', 'connection state changed', { state });
   });
 
   room.on(RoomEvent.Reconnecting, () => {
-    debugLog('monitor:room', 'room reconnecting', {});
     console.warn('[shelly] room reconnecting…');
   });
 
   room.on(RoomEvent.Reconnected, () => {
-    debugLog('monitor:room', 'room reconnected', {});
     console.info('[shelly] room reconnected');
   });
 
   room.on(RoomEvent.Disconnected, () => {
-    debugLog('monitor:room', 'room disconnected', {});
     console.warn('[shelly] room disconnected');
   });
 }
@@ -106,25 +94,20 @@ function monitorRoom(ctx: JobContext): void {
  *  errors, and session close events. */
 function monitorSession(session: voice.AgentSession): void {
   session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => {
-    debugLog('monitor:session', 'agent state changed', { from: ev.oldState, to: ev.newState });
   });
 
   session.on(voice.AgentSessionEventTypes.UserStateChanged, (ev) => {
-    debugLog('monitor:session', 'user state changed', { from: ev.oldState, to: ev.newState });
   });
 
   session.on(voice.AgentSessionEventTypes.MetricsCollected, (ev) => {
-    debugLog('monitor:session', 'metrics collected', { metrics: ev.metrics as unknown as Record<string, unknown> });
   });
 
   session.on(voice.AgentSessionEventTypes.Error, (ev) => {
     const err = ev.error instanceof Error ? ev.error : new Error(String(ev.error));
-    debugLog('monitor:session', 'session error', { message: err.message, stack: err.stack ?? '' });
     console.error('[shelly] session error:', err.message);
   });
 
   session.on(voice.AgentSessionEventTypes.Close, (ev) => {
-    debugLog('monitor:session', 'session closed', { reason: ev.reason, error: ev.error ? String(ev.error) : null });
     console.info('[shelly] session closed, reason:', ev.reason);
   });
 }
@@ -136,7 +119,6 @@ export default defineAgent({
     // Warm up the OpenAI realtime model connection pool so the first job
     // starts faster. Nothing to pre-load for the realtime model beyond
     // ensuring the plugin package is imported (done at module load time).
-    debugLog('main.ts:prewarm', 'worker prewarm called', {});
     console.info('[shelly] worker prewarm complete');
   },
 
@@ -145,32 +127,77 @@ export default defineAgent({
     try {
       const { childName, topics } = parseDispatchMetadata(ctx);
 
-      const session = new voice.AgentSession({
-        llm: new openai.realtime.RealtimeModel({
-          voice: 'coral',
-        }),
-      });
+    const room = ctx.room;
+
+    const proposeMissionsTool = llm.tool({
+      description: 'Propose exactly 3 age-appropriate missions/challenges for the child based on what they talked about. Call this before ending every conversation.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          choices: {
+            type: 'array',
+            description: 'Exactly 3 mission choices',
+            minItems: 3,
+            maxItems: 3,
+            items: {
+              type: 'object',
+              properties: {
+                title: { type: 'string', description: 'Short mission title (5 words max)' },
+                description: { type: 'string', description: 'What the child will do (1 sentence)' },
+                difficulty: { type: 'string', enum: ['easy', 'medium', 'stretch'], description: 'easy=anyone can do it, medium=a little challenge, stretch=big challenge' },
+              },
+              required: ['title', 'description', 'difficulty'],
+            },
+          },
+        },
+        required: ['choices'],
+      },
+      execute: async (args: { choices: Array<{ title: string; description: string; difficulty: string }> }) => {
+        sendData(room, { type: 'missionChoices', choices: args.choices });
+        return 'Missions proposed successfully.';
+      },
+    });
+
+    const endConversationTool = llm.tool({
+      description: 'End the conversation after you have said goodbye. Only call this after propose_missions.',
+      parameters: { type: 'object' as const, properties: {} },
+      execute: async () => {
+        sendData(room, { type: 'endConversation' });
+        setTimeout(() => { room.disconnect(); }, 3000);
+        return 'Conversation ended.';
+      },
+    });
+
+    const session = new voice.AgentSession({
+      llm: new openai.realtime.RealtimeModel({
+        voice: 'coral',
+      }),
+    });
 
       monitorSession(session);
 
-      console.info('[shelly] starting session');
-      await session.start({
-        agent: new ShellyAgent({ childName, topics }),
-        room: ctx.room,
-        inputOptions: {
-          noiseCancellation: BackgroundVoiceCancellation(),
-        },
-      });
-      console.info('[shelly] session started, connecting to room');
+    await session.start({
+      agent: new ShellyAgent({ childName, topics, tools: { propose_missions: proposeMissionsTool, end_conversation: endConversationTool } }),
+      room: ctx.room,
+      inputOptions: {
+        noiseCancellation: BackgroundVoiceCancellation(),
+      },
+    });
 
       await ctx.connect();
       console.info('[shelly] room connected', { room: ctx.room.name });
       monitorRoom(ctx);
 
-      const room = ctx.room;
-      session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
-        if (ev.isFinal && ev.transcript.trim()) {
-          sendTranscript(room, 'user', ev.transcript);
+    session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
+      if (ev.isFinal && ev.transcript.trim()) {
+        sendTranscript(room, 'user', ev.transcript);
+      }
+    });
+    session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
+      if (ev.item.role === 'assistant') {
+        const text = (ev.item as { textContent?: string }).textContent;
+        if (text?.trim()) {
+          sendTranscript(room, 'assistant', text);
         }
       });
       session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
