@@ -141,49 +141,60 @@ export default defineAgent({
   },
 
   entry: async (ctx: JobContext) => {
-    const { childName, topics } = parseDispatchMetadata(ctx);
+    console.info('[shelly] job received', { room: ctx.job.room?.name, jobId: ctx.job.id });
+    try {
+      const { childName, topics } = parseDispatchMetadata(ctx);
 
-    const session = new voice.AgentSession({
-      llm: new openai.realtime.RealtimeModel({
-        voice: 'coral',
-      }),
-    });
+      const session = new voice.AgentSession({
+        llm: new openai.realtime.RealtimeModel({
+          voice: 'coral',
+        }),
+      });
 
-    monitorSession(session);
+      monitorSession(session);
 
-    await session.start({
-      agent: new ShellyAgent({ childName, topics }),
-      room: ctx.room,
-      inputOptions: {
-        noiseCancellation: BackgroundVoiceCancellation(),
-      },
-    });
+      console.info('[shelly] starting session');
+      await session.start({
+        agent: new ShellyAgent({ childName, topics }),
+        room: ctx.room,
+        inputOptions: {
+          noiseCancellation: BackgroundVoiceCancellation(),
+        },
+      });
+      console.info('[shelly] session started, connecting to room');
 
-    await ctx.connect();
-    monitorRoom(ctx);
+      await ctx.connect();
+      console.info('[shelly] room connected', { room: ctx.room.name });
+      monitorRoom(ctx);
 
-    const room = ctx.room;
-    session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
-      if (ev.isFinal && ev.transcript.trim()) {
-        sendTranscript(room, 'user', ev.transcript);
-      }
-    });
-    session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
-      if (ev.item.role === 'assistant') {
-        const text = (ev.item as { textContent?: string }).textContent;
-        if (text?.trim()) {
-          sendTranscript(room, 'assistant', text);
+      const room = ctx.room;
+      session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
+        if (ev.isFinal && ev.transcript.trim()) {
+          sendTranscript(room, 'user', ev.transcript);
         }
-      }
-    });
+      });
+      session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
+        if (ev.item.role === 'assistant') {
+          const text = (ev.item as { textContent?: string }).textContent;
+          if (text?.trim()) {
+            sendTranscript(room, 'assistant', text);
+          }
+        }
+      });
 
-    const firstMessageInstruction = childName
-      ? `Greet ${childName} warmly and ask how they are or what they did today. One sentence and one question.`
-      : 'Greet the child warmly and ask how they are or what they did today. One sentence and one question.';
-    const handle = session.generateReply({
-      instructions: firstMessageInstruction,
-    });
-    await handle?.waitForPlayout?.();
+      const firstMessageInstruction = childName
+        ? `Greet ${childName} warmly and ask how they are or what they did today. One sentence and one question.`
+        : 'Greet the child warmly and ask how they are or what they did today. One sentence and one question.';
+      console.info('[shelly] generating first reply', { childName: childName ?? '(none)' });
+      const handle = session.generateReply({
+        instructions: firstMessageInstruction,
+      });
+      await handle?.waitForPlayout?.();
+      console.info('[shelly] first reply playout complete');
+    } catch (err) {
+      console.error('[shelly] entry failed', err);
+      throw err;
+    }
   },
 });
 
@@ -191,6 +202,7 @@ cli.runApp(
   new ServerOptions({
     agent: fileURLToPath(import.meta.url),
     agentName: 'shelly',
+    port: 8080,
     // Give the job process more time to start (default 10s can be too short on Windows / cold start for 2nd+ jobs)
     initializeProcessTimeout: 60 * 1000,
   })
