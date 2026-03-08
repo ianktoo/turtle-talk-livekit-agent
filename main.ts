@@ -11,6 +11,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { ShellyAgent } from './agent.js';
+import { getFirstMessageInstruction } from '../lib/speech/prompts';
+import type { LiveKitControlMessage, MissionSuggestion } from '../lib/speech/types';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: join(__dirname, '.env.local') });
@@ -37,7 +39,10 @@ function sendTranscript(room: { localParticipant?: { publishData(data: Uint8Arra
   room.localParticipant?.publishData(payload, { reliable: true }).catch(() => {});
 }
 
-function sendData(room: { localParticipant?: { publishData(data: Uint8Array, opts: { reliable?: boolean }): Promise<void> } }, payload: unknown): void {
+function sendData(
+  room: { localParticipant?: { publishData(data: Uint8Array, opts: { reliable?: boolean }): Promise<void> } },
+  payload: LiveKitControlMessage,
+): void {
   const data = new TextEncoder().encode(JSON.stringify(payload));
   room.localParticipant?.publishData(data, { reliable: true }).catch(() => {});
 }
@@ -128,13 +133,14 @@ export default defineAgent({
     const room = ctx.room;
 
     const proposeMissionsTool = llm.tool({
-      description: 'Propose exactly 3 age-appropriate missions/challenges for the child based on what they talked about. Call this before ending every conversation.',
+      description:
+        'Offer the child exactly 3 graded challenges — one easy, one medium, one stretch — based on what they talked about.',
       parameters: {
         type: 'object' as const,
         properties: {
           choices: {
             type: 'array',
-            description: 'Exactly 3 mission choices',
+            description: 'Exactly 3 mission choices: [easy, medium, stretch]',
             minItems: 3,
             maxItems: 3,
             items: {
@@ -142,16 +148,30 @@ export default defineAgent({
               properties: {
                 title: { type: 'string', description: 'Short mission title (5 words max)' },
                 description: { type: 'string', description: 'What the child will do (1 sentence)' },
-                difficulty: { type: 'string', enum: ['easy', 'medium', 'stretch'], description: 'easy=anyone can do it, medium=a little challenge, stretch=big challenge' },
+                theme: {
+                  type: 'string',
+                  enum: ['brave', 'kind', 'calm', 'confident', 'creative', 'social', 'curious'],
+                  description: 'High-level theme for this mission.',
+                },
+                difficulty: {
+                  type: 'string',
+                  enum: ['easy', 'medium', 'stretch'],
+                  description: 'easy=anyone can do it, medium=a little challenge, stretch=big challenge',
+                },
               },
-              required: ['title', 'description', 'difficulty'],
+              required: ['title', 'description', 'theme', 'difficulty'],
             },
           },
         },
         required: ['choices'],
       },
-      execute: async (args: { choices: Array<{ title: string; description: string; difficulty: string }> }) => {
-        sendData(room, { type: 'missionChoices', choices: args.choices });
+      execute: async (args: { choices: MissionSuggestion[] }) => {
+        const choices = Array.isArray(args.choices) ? args.choices.slice(0, 3) : [];
+        if (choices.length !== 3) {
+          console.warn('[shelly] propose_missions tool returned invalid choices; expected 3.');
+          return 'No missions published because arguments were invalid.';
+        }
+        sendData(room, { type: 'missionChoices', choices });
         return 'Missions proposed successfully.';
       },
     });
@@ -166,6 +186,32 @@ export default defineAgent({
       },
     });
 
+    const requestAppTool = llm.tool({
+      description:
+        'Request that the Turtle Talk app run an app-side tool. Use this for tasks that require direct access to the app database or services.',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          tool: {
+            type: 'string',
+            description: 'Name of the app-side tool to invoke (e.g. "save_note", "log_event").',
+          },
+          args: {
+            description: 'JSON-serialisable arguments for the app-side tool.',
+          },
+        },
+        required: ['tool'],
+      },
+      execute: async (args: { tool: string; args?: unknown }) => {
+        sendData(room, {
+          type: 'appToolCall',
+          tool: args.tool,
+          args: args.args ?? null,
+        });
+        return 'App tool call requested.';
+      },
+    });
+
     const session = new voice.AgentSession({
       llm: new openai.realtime.RealtimeModel({
         voice: 'coral',
@@ -175,10 +221,21 @@ export default defineAgent({
     monitorSession(session);
 
     await session.start({
-      agent: new ShellyAgent({ childName, topics, tools: { propose_missions: proposeMissionsTool, end_conversation: endConversationTool } }),
+      agent: new ShellyAgent({
+        childName,
+        topics,
+        tools: {
+          propose_missions: proposeMissionsTool,
+          end_conversation: endConversationTool,
+          request_app_tool: requestAppTool,
+        },
+      }),
       room: ctx.room,
       inputOptions: {
         noiseCancellation: BackgroundVoiceCancellation(),
+        // Explicitly link to the user participant (identity from token: 'child')
+        // so the agent receives their microphone audio.
+        participantIdentity: 'child',
       },
     });
 
@@ -199,9 +256,7 @@ export default defineAgent({
       }
     });
 
-    const firstMessageInstruction = childName
-      ? `Greet ${childName} warmly and ask how they are or what they did today. One sentence and one question.`
-      : 'Greet the child warmly and ask how they are or what they did today. One sentence and one question.';
+    const firstMessageInstruction = getFirstMessageInstruction(childName);
     const handle = session.generateReply({
       instructions: firstMessageInstruction,
     });

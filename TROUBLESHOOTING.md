@@ -90,6 +90,7 @@ The agent registers with **agent name `shelly`** (`agentName: 'shelly'` in `main
 ### 5. Browser
 
 - **Microphone:** The app requests mic permission; if denied, you get the permission screen instead of the talk view.
+- **Input device:** On Windows (and other OSes), the system or browser may be using the wrong microphone. If Shelly doesn’t hear you or hears silence, check: **Windows Sound settings → Input device**; in the browser (e.g. Chrome) **Site settings → Microphone** and ensure the correct device is selected.
 - **HTTPS:** For production, use HTTPS (or localhost for dev). LiveKit connections work from localhost.
 
 ---
@@ -111,6 +112,7 @@ Shelly is instructed to **always respond in English only** (see `agent.ts`). The
 | Symptom | Likely cause | Fix |
 |--------|----------------|-----|
 | “Shelly is listening” but no response when you speak | Agent not running or not connected | Start agent with `pnpm dev` in `livekit-agent` and ensure LIVEKIT_* and OPENAI_API_KEY are set. |
+| Shelly speaks but doesn’t hear you / hears silence | Wrong microphone selected in OS or browser | Check Windows Sound → Input device; in browser (e.g. Chrome) Site settings → Microphone and pick the correct device. |
 | Console shows `[Shelly] native start` or `native: processing (request to /api/talk)` | App is using the **native** provider, not LiveKit | In the **repo root** `.env.local`, set `NEXT_PUBLIC_VOICE_PROVIDER=livekit`. Restart the Next.js dev server and hard-refresh `/talk`. |
 | Token error / 503 from `/api/livekit/token` | Missing or wrong LiveKit env in Next app | Set LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET in `.env.local` (root) and restart the dev server. |
 | Agent exits or “API key required” | Missing OPENAI_API_KEY in agent env | Add OPENAI_API_KEY to `livekit-agent/.env.local`. |
