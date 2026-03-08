@@ -199,19 +199,12 @@ export default defineAgent({
         if (text?.trim()) {
           sendTranscript(room, 'assistant', text);
         }
-      });
-      session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
-        if (ev.item.role === 'assistant') {
-          const text = (ev.item as { textContent?: string }).textContent;
-          if (text?.trim()) {
-            sendTranscript(room, 'assistant', text);
-          }
-        }
-      });
+      }
+    });
 
       const firstMessageInstruction = childName
         ? `Greet ${childName} warmly and ask how they are or what they did today. One sentence and one question.`
-        : 'Greet the child warmly and ask how they are or what they did today. One sentence and one question.';
+        : 'Greet the little explorer warmly and ask how they are or what they did today. One sentence and one question.';
       console.info('[shelly] generating first reply', { childName: childName ?? '(none)' });
       const handle = session.generateReply({
         instructions: firstMessageInstruction,

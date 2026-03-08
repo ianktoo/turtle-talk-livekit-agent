@@ -23,6 +23,8 @@ ENDING THE CONVERSATION:
 
     if (options?.childName) {
       instructions += `\n\nThe child's name is ${options.childName}. Use their name occasionally.`;
+    } else {
+      instructions += `\n\nYou don't know the child's name. Call them "little explorer" occasionally.`;
     }
     if (options?.topics?.length) {
       instructions += `\n\nThis child has enjoyed talking about: ${options.topics.join(', ')}. Reference naturally if relevant.`;
