@@ -19,7 +19,7 @@ ifneq (,$(shell command -v pnpm 2>/dev/null))
 	NPM := pnpm
 endif
 
-.PHONY: install build debug start stop docker-build docker-run help
+.PHONY: install build debug start stop status logs monitor docker-build docker-run help
 
 # Default target
 help:
@@ -30,6 +30,9 @@ help:
 	@echo "  make debug    Run in dev mode (foreground, for local debugging)"
 	@echo "  make start    Build and run in production (foreground)"
 	@echo "  make stop     Stop the agent (override STOP_CMD for systemd/pm2)"
+	@echo "  make status   Show systemd service status (systemctl --user status)"
+	@echo "  make logs     Tail live service logs via journald (Ctrl+C to stop)"
+	@echo "  make monitor  Tail the debug log file in real time (Ctrl+C to stop)"
 	@echo "  make docker-build  Build Docker image (tag: turtle-talk-agent)"
 	@echo "  make docker-run    Run container (requires env vars or --env-file)"
 	@echo ""
@@ -59,6 +62,19 @@ STOP_CMD ?= pkill -f "node.*main\.js start" 2>/dev/null || true
 stop:
 	@echo "Stopping agent: $(STOP_CMD)"
 	@$(STOP_CMD)
+
+status:
+	@systemctl --user status turtle-talk-agent
+
+logs:
+	@journalctl --user -u turtle-talk-agent -f
+
+# Monitor: tail the debug log (Ctrl+C to stop)
+LOG_FILE ?= ../debug-6febbf.log
+monitor:
+	@touch $(LOG_FILE)
+	@echo "Tailing $(LOG_FILE) — Ctrl+C to stop"
+	@tail -F $(LOG_FILE)
 
 # Docker: build image (tag turtle-talk-agent)
 docker-build:

@@ -1,7 +1,7 @@
 import { voice, llm } from '@livekit/agents';
 import { BASE_SYSTEM_PROMPT } from '../lib/speech/prompts';
 
-/** Shelly — voice agent for children (aged 4–10). Used by the LiveKit pipeline. */
+/** Shelly — voice agent for children (3rd–6th grade). Used by the LiveKit pipeline. */
 export class ShellyAgent extends voice.Agent {
   constructor(options?: { childName?: string; topics?: string[]; tools?: llm.ToolContext }) {
     let instructions = BASE_SYSTEM_PROMPT;

@@ -128,7 +128,9 @@ export default defineAgent({
   },
 
   entry: async (ctx: JobContext) => {
-    const { childName, topics } = parseDispatchMetadata(ctx);
+    console.info('[shelly] job received', { room: ctx.job.room?.name, jobId: ctx.job.id });
+    try {
+      const { childName, topics } = parseDispatchMetadata(ctx);
 
     const room = ctx.room;
 
@@ -261,6 +263,10 @@ export default defineAgent({
       instructions: firstMessageInstruction,
     });
     await handle?.waitForPlayout?.();
+    } catch (err) {
+      console.error('[shelly] entry failed', err);
+      throw err;
+    }
   },
 });
 
@@ -268,6 +274,7 @@ cli.runApp(
   new ServerOptions({
     agent: fileURLToPath(import.meta.url),
     agentName: 'shelly',
+    port: 8080,
     // Give the job process more time to start (default 10s can be too short on Windows / cold start for 2nd+ jobs)
     initializeProcessTimeout: 60 * 1000,
   })
