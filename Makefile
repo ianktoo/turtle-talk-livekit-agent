@@ -19,20 +19,21 @@ ifneq (,$(shell command -v pnpm 2>/dev/null))
 	NPM := pnpm
 endif
 
-.PHONY: install build debug start stop status logs monitor docker-build docker-run help
+.PHONY: install build debug start stop status logs monitor sync-lib docker-build docker-run help
 
 # Default target
 help:
 	@echo "Turtle Talk LiveKit agent"
 	@echo ""
-	@echo "  make install   Install dependencies ($(NPM) install)"
-	@echo "  make build    Compile TypeScript"
-	@echo "  make debug    Run in dev mode (foreground, for local debugging)"
-	@echo "  make start    Build and run in production (foreground)"
-	@echo "  make stop     Stop the agent (override STOP_CMD for systemd/pm2)"
-	@echo "  make status   Show systemd service status (systemctl --user status)"
-	@echo "  make logs     Tail live service logs via journald (Ctrl+C to stop)"
-	@echo "  make monitor  Tail the debug log file in real time (Ctrl+C to stop)"
+	@echo "  make install    Install dependencies ($(NPM) install)"
+	@echo "  make sync-lib   Fetch shared lib/speech from turtle-talk main repo"
+	@echo "  make build      Compile TypeScript"
+	@echo "  make debug      Run in dev mode (foreground, for local debugging)"
+	@echo "  make start      Build and run in production (foreground)"
+	@echo "  make stop       Stop the agent (override STOP_CMD for systemd/pm2)"
+	@echo "  make status     Show systemd service status (systemctl --user status)"
+	@echo "  make logs       Tail live service logs via journald (Ctrl+C to stop)"
+	@echo "  make monitor    Tail the debug log file in real time (Ctrl+C to stop)"
 	@echo "  make docker-build  Build Docker image (tag: turtle-talk-agent)"
 	@echo "  make docker-run    Run container (requires env vars or --env-file)"
 	@echo ""
@@ -42,6 +43,12 @@ help:
 
 install:
 	$(NPM) install
+
+# Sync shared lib/speech from the turtle-talk main repo.
+# Run this whenever lib/speech types or prompts change in the main repo.
+# Deploy workflow: make sync-lib && make build
+sync-lib:
+	@sh scripts/sync-lib.sh
 
 build:
 	$(NPM) run build

@@ -11,8 +11,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { ShellyAgent } from './agent.js';
-import { getFirstMessageInstruction } from '../lib/speech/prompts';
-import type { LiveKitControlMessage, MissionSuggestion } from '../lib/speech/types';
+import { getFirstMessageInstruction } from '../lib/speech/prompts.js';
+import type { LiveKitControlMessage, MissionSuggestion } from '../lib/speech/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: join(__dirname, '.env.local') });
