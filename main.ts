@@ -136,7 +136,9 @@ export default defineAgent({
 
     const proposeMissionsTool = llm.tool({
       description:
-        'Offer the child exactly 3 graded challenges — one easy, one medium, one stretch — based on what they talked about.',
+        'Offer the child exactly 3 graded challenges — one easy, one medium, one stretch — based on what they talked about. ' +
+        'Call this when you want to offer missions — either during the conversation at a natural moment, or when wrapping up. ' +
+        'You do NOT need to end the conversation just because you proposed missions.',
       parameters: {
         type: 'object' as const,
         properties: {
@@ -179,7 +181,10 @@ export default defineAgent({
     });
 
     const endConversationTool = llm.tool({
-      description: 'End the conversation after you have said goodbye. Only call this after propose_missions.',
+      description:
+        'Signal the conversation has reached a warm, natural close. ' +
+        'Call this only after the child has had a chance to react to proposed missions (if any) and the conversation feels complete. ' +
+        'Say a warm goodbye that references what you talked about before calling this.',
       parameters: { type: 'object' as const, properties: {} },
       execute: async () => {
         sendData(room, { type: 'endConversation' });
@@ -217,7 +222,18 @@ export default defineAgent({
     const session = new voice.AgentSession({
       llm: new openai.realtime.RealtimeModel({
         voice: 'coral',
+        turnDetection: {
+          type: 'semantic_vad',
+          eagerness: 'high',
+          create_response: true,
+          interrupt_response: false,
+        },
+        inputAudioTranscription: { model: 'whisper-1', language: 'en' },
+        inputAudioNoiseReduction: { type: 'near_field' },
       }),
+      voiceOptions: {
+        allowInterruptions: false,
+      },
     });
 
     monitorSession(session);
